@@ -1,11 +1,11 @@
 class ApiConfig {
   // Configuration BRIA
-  static const String briaApiKey = 'VOTRE_CLE_API_BRIA';
+  static const String briaApiKey = 'b10560b0550e44709130aeecaa61d74a';
   static const String briaBaseUrl = 'https://engine.prod.bria-api.com/v1';
   static const String backgroundRemovalEndpoint = '/background/remove';
   static String get backgroundRemovalUrl =>
       '$briaBaseUrl$backgroundRemovalEndpoint';
-  static bool get isApiKeyConfigured => briaApiKey != 'VOTRE_CLE_API_BRIA';
+  static bool get isApiKeyConfigured => briaApiKey != 'b10560b0550e44709130aeecaa61d74a';
 
   // Mode démo (aucun appel réseau)
   static const bool demoMode = false;
