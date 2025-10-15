@@ -9,6 +9,7 @@ import 'package:test_app/screens/preview_screen.dart';
 import 'package:test_app/screens/ar_measure_screen.dart';
 import 'package:test_app/screens/captures_screen.dart';
 import 'package:test_app/services/background_removal_service.dart';
+import 'package:test_app/services/image_validation_service.dart';
 import 'package:test_app/models/processed_image.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -29,16 +30,12 @@ class _CameraScreenState extends State<CameraScreen>
   File? _imageFile;
   File? _videoFile;
 
-  // Initial values
   bool _isCameraInitialized = false;
   bool _isCameraPermissionGranted = false;
-  // Only rear camera and photo mode are supported
   bool _isRecordingInProgress = false;
   double _minAvailableExposureOffset = 0.0;
   double _maxAvailableExposureOffset = 0.0;
-  // Zoom disabled in this app
 
-  // Current values
   double _currentExposureOffset = 0.0;
   FlashMode? _currentFlashMode;
   bool _showExposureControls = false;
@@ -48,12 +45,10 @@ class _CameraScreenState extends State<CameraScreen>
 
   List<String> _products = [];
 
-  // Background removal toggle
   bool _removeBackground = true;
 
-  // Guidance frame configuration
-  static const double _guideSize = 250.0; // Adjust size as needed
-  GuideShape _guideShape = GuideShape.rectangle; // Change to circle if desired
+  static const double _guideSize = 250.0;
+  GuideShape _guideShape = GuideShape.rectangle;
 
   ResolutionPreset currentResolutionPreset = ResolutionPreset.max;
 
@@ -71,6 +66,170 @@ class _CameraScreenState extends State<CameraScreen>
     } catch (e) {
       log('Failed to load products: $e');
     }
+  }
+
+  /// Affiche un dialogue de validation de l'image avec les critères
+  Future<bool> _showValidationDialog(
+    File tempImage,
+    ImageValidationResult validationResult,
+  ) async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          title: Row(
+            children: [
+              Icon(
+                validationResult.isValid ? Icons.check_circle : Icons.warning,
+                color: validationResult.isValid ? Colors.green : Colors.orange,
+              ),
+              SizedBox(width: 8),
+              Text(
+                validationResult.isValid
+                    ? 'Image validée'
+                    : 'Problèmes détectés',
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Image.file(tempImage, fit: BoxFit.cover),
+                ),
+                SizedBox(height: 16),
+                if (!validationResult.isValid) ...[
+                  Text(
+                    'Problèmes détectés :',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  ...validationResult.errors.map(
+                    (error) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.error_outline, color: Colors.red, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              error,
+                              style: TextStyle(color: Colors.red[700]),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 16),
+                ] else ...[
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'L\'image respecte tous les critères de qualité',
+                          style: TextStyle(color: Colors.green[700]),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 16),
+                ],
+                Divider(),
+                SizedBox(height: 8),
+                Text(
+                  'Critères vérifiés :',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                SizedBox(height: 8),
+                _buildCriterion(
+                  'Clarté de l\'image',
+                  validationResult.metrics['sharpness'] >= 50.0,
+                ),
+                _buildCriterion(
+                  'Objet non coupé',
+                  !(validationResult.metrics['is_cropped'] ?? false),
+                ),
+                _buildCriterion(
+                  'Un seul objet présent',
+                  validationResult.metrics['object_count'] == 1,
+                ),
+                _buildCriterion(
+                  'Bonne présentation',
+                  (validationResult.metrics['contrast'] ?? 0) >= 30.0 &&
+                      (validationResult.metrics['brightness'] ?? 0) >= 80.0 &&
+                      (validationResult.metrics['brightness'] ?? 255) <= 200.0,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: Text('Reprendre'),
+            ),
+            if (validationResult.isValid)
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop(true);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                ),
+                child: Text('Continuer'),
+              )
+            else
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop(true);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                ),
+                child: Text('Continuer quand même'),
+              ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+
+  Widget _buildCriterion(String label, bool isValid) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4.0),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check : Icons.close,
+            color: isValid ? Colors.green : Colors.red,
+            size: 18,
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<Map<String, dynamic>?> _showConfirmationDialog(
@@ -204,7 +363,6 @@ class _CameraScreenState extends State<CameraScreen>
       setState(() {
         _isCameraPermissionGranted = true;
       });
-      // Set and initialize the new camera
       onNewCameraSelected(cameras[0]);
       refreshAlreadyCapturedImages();
     } else {
@@ -218,7 +376,6 @@ class _CameraScreenState extends State<CameraScreen>
 
     allFileList.clear();
 
-    // Conserver uniquement les fichiers image/vidéo pertinents
     final List<File> files = entries.whereType<File>().where((f) {
       final p = f.path.toLowerCase();
       return p.endsWith('.jpg') || p.endsWith('.png') || p.endsWith('.mp4');
@@ -227,11 +384,10 @@ class _CameraScreenState extends State<CameraScreen>
     allFileList.addAll(files);
 
     if (files.isNotEmpty) {
-      // Sélectionner le fichier le plus récent par date de modification
       files.sort((a, b) {
         final am = a.statSync().modified;
         final bm = b.statSync().modified;
-        return bm.compareTo(am); // plus récent en premier
+        return bm.compareTo(am);
       });
 
       final File recent = files.first;
@@ -254,7 +410,6 @@ class _CameraScreenState extends State<CameraScreen>
     final CameraController? cameraController = controller;
 
     if (cameraController!.value.isTakingPicture) {
-      // A capture is already pending, do nothing.
       return null;
     }
 
@@ -271,8 +426,6 @@ class _CameraScreenState extends State<CameraScreen>
     if (_videoFile != null) {
       videoController = VideoPlayerController.file(_videoFile!);
       await videoController!.initialize().then((_) {
-        // Ensure the first frame is shown after the video is initialized,
-        // even before the play button has been pressed.
         setState(() {});
       });
       await videoController!.setLooping(true);
@@ -284,7 +437,6 @@ class _CameraScreenState extends State<CameraScreen>
     final CameraController? cameraController = controller;
 
     if (controller!.value.isRecordingVideo) {
-      // A recording has already started, do nothing.
       return;
     }
 
@@ -301,7 +453,6 @@ class _CameraScreenState extends State<CameraScreen>
 
   Future<XFile?> stopVideoRecording() async {
     if (!controller!.value.isRecordingVideo) {
-      // Recording is already is stopped state
       return null;
     }
 
@@ -319,7 +470,6 @@ class _CameraScreenState extends State<CameraScreen>
 
   Future<void> pauseVideoRecording() async {
     if (!controller!.value.isRecordingVideo) {
-      // Video recording is not in progress
       return;
     }
 
@@ -332,7 +482,6 @@ class _CameraScreenState extends State<CameraScreen>
 
   Future<void> resumeVideoRecording() async {
     if (!controller!.value.isRecordingVideo) {
-      // No video recording was in progress
       return;
     }
 
@@ -366,7 +515,6 @@ class _CameraScreenState extends State<CameraScreen>
       });
     }
 
-    // Update UI if controller updated
     cameraController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -380,7 +528,6 @@ class _CameraScreenState extends State<CameraScreen>
         cameraController.getMaxExposureOffset().then(
           (value) => _maxAvailableExposureOffset = value,
         ),
-        // Zoom levels are not used
       ]);
 
       _currentFlashMode = controller!.value.flashMode;
@@ -410,7 +557,6 @@ class _CameraScreenState extends State<CameraScreen>
 
   @override
   void initState() {
-    // Hide the status bar in Android
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
     getPermissionStatus();
     _loadProducts();
@@ -421,7 +567,6 @@ class _CameraScreenState extends State<CameraScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final CameraController? cameraController = controller;
 
-    // App state changed before we got the chance to initialize.
     if (cameraController == null || !cameraController.value.isInitialized) {
       return;
     }
@@ -473,7 +618,6 @@ class _CameraScreenState extends State<CameraScreen>
                                         },
                                   ),
                                 ),
-                                // Centered guidance frame overlay (transparent fill, green border)
                                 Center(
                                   child: IgnorePointer(
                                     child: SizedBox(
@@ -494,7 +638,6 @@ class _CameraScreenState extends State<CameraScreen>
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       SizedBox.shrink(),
-                                      // Spacer(),
                                       if (_showExposureControls)
                                         Padding(
                                           padding: const EdgeInsets.only(
@@ -548,7 +691,6 @@ class _CameraScreenState extends State<CameraScreen>
                                             ),
                                           ),
                                         ),
-                                      // Preview thumbnail moved to bottom bar
                                       InkWell(
                                         onTap:
                                             _imageFile != null ||
@@ -617,7 +759,6 @@ class _CameraScreenState extends State<CameraScreen>
                             ),
                           ),
                         ),
-                        // Bottom controls - simplified layout
                         Positioned(
                           bottom: 0,
                           left: 0,
@@ -627,7 +768,6 @@ class _CameraScreenState extends State<CameraScreen>
                             color: Colors.black.withOpacity(0.8),
                             child: Column(
                               children: [
-                                // Top row: Toggle suppression fond
                                 Container(
                                   height: 30,
                                   child: Row(
@@ -661,13 +801,11 @@ class _CameraScreenState extends State<CameraScreen>
                                     ],
                                   ),
                                 ),
-                                // Bottom row: Capture button
                                 Expanded(
                                   child: Row(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceEvenly,
                                     children: [
-                                      // Flash Off
                                       IconButton(
                                         onPressed: () async {
                                           await controller?.setFlashMode(
@@ -687,28 +825,59 @@ class _CameraScreenState extends State<CameraScreen>
                                           size: 24,
                                         ),
                                       ),
-                                      // Capture Button - BIG AND VISIBLE
                                       InkWell(
                                         onTap: () async {
                                           XFile? rawImage = await takePicture();
                                           if (rawImage == null) return;
-                                          final File tempImage = File(
-                                            rawImage.path,
-                                          );
+                                          
+                                          final File tempImage = File(rawImage.path);
                                           final DateTime now = DateTime.now();
-                                          // Get distance automatically via AR screen first
+                                          
+                                          // Étape 1: Validation de l'image
+                                          showDialog(
+                                            context: context,
+                                            barrierDismissible: false,
+                                            builder: (context) => Center(
+                                              child: CircularProgressIndicator(),
+                                            ),
+                                          );
+                                          
+                                          final ImageValidationResult validationResult =
+                                              await ImageValidationService.validateImage(tempImage);
+                                          
+                                          Navigator.of(context).pop(); // Fermer loading
+                                          
+                                          // Afficher le résultat de validation
+                                          final bool continueProcess =
+                                              await _showValidationDialog(
+                                                tempImage,
+                                                validationResult,
+                                              );
+                                          
+                                          if (!continueProcess) {
+                                            try {
+                                              await tempImage.delete();
+                                            } catch (_) {}
+                                            return;
+                                          }
+                                          
+                                          // Étape 2: Mesure AR
                                           final double? d = await Navigator.of(context).push<double>(
                                             MaterialPageRoute(
                                               builder: (_) => const ARMeasureScreen(),
                                             ),
                                           );
+                                          
+                                          // Étape 3: Formulaire de confirmation
                                           final Map<String, dynamic>? result =
                                               await _showConfirmationDialog(
                                                 tempImage,
                                                 now,
                                                 initialDistance: d,
                                               );
+                                          
                                           if (result == null) return;
+                                          
                                           if (result['validated'] == true) {
                                             await _processAndSaveImage(
                                               tempImage,
@@ -739,7 +908,6 @@ class _CameraScreenState extends State<CameraScreen>
                                           ),
                                         ),
                                       ),
-                                      // Flash On
                                       IconButton(
                                         onPressed: () async {
                                           await controller?.setFlashMode(
@@ -816,7 +984,6 @@ class _CameraScreenState extends State<CameraScreen>
     );
   }
 
-  /// Traite et sauvegarde une image avec suppression optionnelle du fond
   Future<void> _processAndSaveImage(
     File tempImage,
     DateTime captureTime,
@@ -828,7 +995,6 @@ class _CameraScreenState extends State<CameraScreen>
       final int ts =
           (result['timestamp'] as int?) ?? captureTime.millisecondsSinceEpoch;
 
-      // Sauvegarder l'image originale
       final String originalPath =
           '${directory.path}/${ts}_original.$fileFormat';
       final File originalFile = await tempImage.copy(originalPath);
@@ -838,14 +1004,12 @@ class _CameraScreenState extends State<CameraScreen>
       );
 
       if (_removeBackground) {
-        // Ajouter l'image en cours de traitement
         setState(() {
           processedImage = processedImage.copyWith(isProcessing: true);
           processedImages.insert(0, processedImage);
         });
 
         try {
-          // Traiter l'image pour supprimer le fond
           final String processedPath =
               '${directory.path}/${ts}_processed.$fileFormat';
           final File processedFile =
@@ -854,7 +1018,6 @@ class _CameraScreenState extends State<CameraScreen>
                 processedPath,
               );
 
-          // Mettre à jour avec l'image traitée
           setState(() {
             final index = processedImages.indexWhere(
               (img) => img.originalImage.path == originalFile.path,
@@ -867,7 +1030,6 @@ class _CameraScreenState extends State<CameraScreen>
             }
           });
         } catch (e) {
-          // En cas d'erreur, garder seulement l'image originale
           setState(() {
             final index = processedImages.indexWhere(
               (img) => img.originalImage.path == originalFile.path,
@@ -881,7 +1043,6 @@ class _CameraScreenState extends State<CameraScreen>
           });
         }
       } else {
-        // Sans suppression de fond, ajouter directement l'image originale
         setState(() {
           processedImages.insert(0, processedImage);
         });
